@@ -7,4 +7,5 @@ Auto Claim promo for animestars
 От вас - поменять массив с куками и заполнить конфиг - писать сразу после =, Пример: DS_API=ЧТОто_какТО 
 
 api hash и id - https://my.telegram.org/auth
+
 ds token через расширение или по гайдам смотрите как получить
