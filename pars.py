@@ -19,7 +19,6 @@ from datetime import datetime
 
 # Load environment variables
 load_dotenv('config.env')
-load_dotenv('configDS.env')
 
 # Telegram configuration
 API_ID = os.getenv('API_ID')
