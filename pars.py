@@ -81,6 +81,8 @@ def use_promo_code(promo_code):
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
+
+        chrome_service = ChromeService(port=9516) 
         
         driver = None
         try:
