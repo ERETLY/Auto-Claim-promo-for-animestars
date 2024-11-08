@@ -153,8 +153,6 @@ async def check_telegram_messages():
                         promo_queue.append(promo_code)
                     else:
                         print("No promo code found in new Telegram message.")
-                else:
-                    print("Waiting for new messages... (Telegram)")
         except Exception as e:
             print(f"Telegram error: {e}")
 
