@@ -20,37 +20,30 @@ from datetime import datetime
 # Load environment variables
 load_dotenv('config.env')
 
-# Telegram configuration
 API_ID = os.getenv('API_ID')
 API_HASH = os.getenv('API_HASH')
 PHONE_NUMBER = os.getenv('PHONE_NUMBER')
 TELEGRAM_CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME')
 
-# Discord configuration
 DISCORD_TOKEN = os.getenv('DISCORD_USER_TOKEN')
 DISCORD_CHANNEL_ID = os.getenv('DISCORD_CHANNEL_ID')
 DISCORD_API_URL = f'https://discord.com/api/v9/channels/{DISCORD_CHANNEL_ID}/messages'
 
-# Proxy configuration
 PROXY_ENABLED = os.getenv('PROXY_ENABLED', 'false').lower() == 'true'
 PROXY_URL = os.getenv('PROXY_URL')
 
 # Cookie files
 COOKIE_FILES = ['cookies.pkl', 'cookies1.pkl', 'cookies2.pkl']
 
-# Create Pyrogram client
 app = Client("my_account", api_id=API_ID, api_hash=API_HASH, phone_number=PHONE_NUMBER)
 
-# Variables to track state
 last_telegram_message_id = 0
 last_discord_message_id = None
 is_first_telegram_check = True
 is_first_discord_check = True
 
-# Promo code queue
 promo_queue = deque()
 
-# Headers for Discord requests
 discord_headers = {
     'Authorization': DISCORD_TOKEN,
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36',
@@ -80,8 +73,9 @@ def use_promo_code(promo_code):
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
-
-        chrome_service = ChromeService(port=9516) 
+        
+         # Use a different port for ChromeDriver
+        chrome_service = ChromeService(port=9516)  # You can change this port if needed
         
         driver = None
         try:
@@ -132,7 +126,7 @@ async def process_promo_queue():
         if promo_queue:
             promo_code = promo_queue.popleft()
             use_promo_code(promo_code)
-        await asyncio.sleep(5)  # Wait 5 seconds before checking the queue again
+        await asyncio.sleep(5)
 
 async def check_telegram_messages():
     global last_telegram_message_id, is_first_telegram_check
@@ -147,16 +141,20 @@ async def check_telegram_messages():
                         print("Skipped first Telegram message.")
                         continue
 
-                    promo_code = extract_promo_code(message.text)
-                    if promo_code:
-                        print(f"New Telegram promo code found: {promo_code}")
-                        promo_queue.append(promo_code)
+                    message_text = message.text or message.caption
+                    if message_text:
+                        promo_code = extract_promo_code(message_text)
+                        if promo_code:
+                            print(f"New Telegram promo code found: {promo_code}")
+                            promo_queue.append(promo_code)
+                        else:
+                            print("No promo code found in new Telegram message.")
                     else:
-                        print("No promo code found in new Telegram message.")
+                        print("No text found in Telegram message.")
         except Exception as e:
             print(f"Telegram error: {e}")
 
-        await asyncio.sleep(30)
+        await asyncio.sleep(10)
 
 def check_discord_messages():
     global last_discord_message_id, is_first_discord_check
@@ -195,7 +193,7 @@ def check_discord_messages():
         except Exception as e:
             print(f"Discord error: {e}")
 
-        time.sleep(30)
+        time.sleep(10)
 
 async def main():
     await app.start()
