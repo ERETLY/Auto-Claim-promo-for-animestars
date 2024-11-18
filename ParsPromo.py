@@ -235,7 +235,7 @@ async def main(run_time):
     end = time.time()
 
 if __name__ == "__main__":
-    RESTART_INTERVAL = 3600  # Интервал перезапуска в секундах
+    RESTART_INTERVAL = 3598  # Интервал перезапуска в секундах
     start_time = time.time()
 
     loop = asyncio.get_event_loop()
