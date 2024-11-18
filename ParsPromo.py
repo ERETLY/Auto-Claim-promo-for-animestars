@@ -3,19 +3,19 @@ import re
 import os
 import time
 import random
+import sys
 import pickle
 from collections import deque
 from dotenv import load_dotenv
 from pyrogram import Client
-import requests
+import aiohttp
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Load environment variables
 load_dotenv('config.env')
@@ -74,19 +74,21 @@ def use_promo_code(promo_code):
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option('useAutomationExtension', False)
         
-         # Use a different port for ChromeDriver
-        chrome_service = ChromeService(port=9516)  # You can change this port if needed
+    for index, cookie_file_path in enumerate(COOKIE_FILES):
+        chrome_service = ChromeService(port=9516 + index)
         
         driver = None
         try:
-            driver = webdriver.Chrome(service=ChromeService(), options=chrome_options)
+            driver = webdriver.Chrome(service=chrome_service, options=chrome_options)
             driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
             
             print(f'Using promo code "{promo_code}" for cookie file: {cookie_file_path}')
-            time.sleep(random.uniform(1, 3))
+            time.sleep(1)
             
             driver.get('https://animestars.org/promo_codes/')
+            print('Opened site')
             driver.delete_all_cookies()
+            print('Cookies has been deleted')
 
             with open(cookie_file_path, 'rb') as cookie_file:
                 cookies = pickle.load(cookie_file)
@@ -96,14 +98,17 @@ def use_promo_code(promo_code):
                     driver.add_cookie(cookie)
 
             driver.get('https://animestars.org/promo_codes/')
+            print('Site opened with cookies')
 
             input_field = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, '#promo_code_input'))
             )
             
-            for char in promo_code:
-                input_field.send_keys(char)
-                time.sleep(random.uniform(0.1, 0.3))
+            # Optimize input by using JavaScript to set the value
+            driver.execute_script("arguments[0].value = arguments[1];", input_field, promo_code)
+            
+            # Trigger an input event to ensure the site recognizes the change
+            driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", input_field)
 
             print(f'Promo code "{promo_code}" entered.')
 
@@ -120,6 +125,7 @@ def use_promo_code(promo_code):
         finally:
             if driver:
                 driver.quit()
+                time.sleep(5)
 
 async def process_promo_queue():
     while True:
@@ -156,58 +162,104 @@ async def check_telegram_messages():
 
         await asyncio.sleep(10)
 
-def check_discord_messages():
+async def check_discord_messages():
     global last_discord_message_id, is_first_discord_check
-    
-    proxies = None
-    if PROXY_ENABLED and PROXY_URL:
-        proxies = {'http': PROXY_URL, 'https': PROXY_URL}
-    
-    while True:
-        try:
-            response = requests.get(DISCORD_API_URL, headers=discord_headers, proxies=proxies)
-            if response.status_code == 200:
-                messages = response.json()
-                if messages:
-                    latest_message = messages[0]
-                    
-                    if latest_message['id'] != last_discord_message_id:
-                        last_discord_message_id = latest_message['id']
 
-                        if is_first_discord_check:
-                            is_first_discord_check = False
-                            print("Skipped first Discord message.")
-                            continue
+async def check_discord_messages():
+    global last_discord_message_id, is_first_discord_check
 
-                        promo_code = extract_promo_code(latest_message['content'])
-                        if promo_code:
-                            print(f"New Discord promo code found: {promo_code}")
-                            promo_queue.append(promo_code)
-                        else:
-                            print("No promo code found in new Discord message.")
-                else:
-                    print("Failed to get Discord messages.")
-            else:
-                print(f"Discord API error: {response.status_code} - {response.text}")
+    async with aiohttp.ClientSession() as session:
+        retry_count = 0
+        max_retries = 1000
+        while True:
+            try:
+                async with session.get(DISCORD_API_URL, headers=discord_headers, proxy=PROXY_URL if PROXY_ENABLED else None) as response:
+                    if response.status == 200:
+                        messages = await response.json()
+                        if messages:
+                            latest_message = messages[0]
+                            
+                            if latest_message['id'] != last_discord_message_id:
+                                last_discord_message_id = latest_message['id']
 
-        except Exception as e:
-            print(f"Discord error: {e}")
+                                if is_first_discord_check:
+                                    is_first_discord_check = False
+                                    print("Skipped first Discord message.")
+                                    continue
 
-        time.sleep(10)
+                                promo_code = extract_promo_code(latest_message['content'])
+                                if promo_code:
+                                    print(f"New Discord promo code found: {promo_code}")
+                                    promo_queue.append(promo_code)
+                                else:
+                                    print("No promo code found in new Discord message.")
+                    else:
+                        print(f"Discord API error: {response.status} - {await response.text()}")
 
-async def main():
-    await app.start()
-    print("Telegram client started")
-    
-    with ThreadPoolExecutor(max_workers=3) as executor:
+            except aiohttp.ClientError as e:
+                print(f"Discord connection error: {e}")
+                retry_count += 1
+                if retry_count > max_retries:
+                    print(f"Max retry attempts reached ({max_retries}). Stopping.")
+                    break 
+                wait_time = min(3 ** retry_count, 60)
+                print(f"Retrying in {wait_time} seconds...")
+                await asyncio.sleep(wait_time)
+
+            except Exception as e:
+                print(f"Unexpected error: {e}")
+                await asyncio.sleep(15)
+
+            await asyncio.sleep(15)
+
+
+async def main(run_time):
+    start = time.time()
+    try:
+        await app.start()
+        
         telegram_task = asyncio.create_task(check_telegram_messages())
-        discord_task = executor.submit(check_discord_messages)
+        discord_task = asyncio.create_task(check_discord_messages())
         promo_queue_task = asyncio.create_task(process_promo_queue())
         
-        await asyncio.gather(telegram_task, promo_queue_task)
-        discord_task.result()
+        await asyncio.sleep(run_time)
+        
+        telegram_task.cancel()
+        discord_task.cancel()
+        promo_queue_task.cancel()
+        
+        await asyncio.gather(telegram_task, discord_task, promo_queue_task, return_exceptions=True)
+    except Exception as e:
+        print(f"Error in main: {e}")
+    finally:
+        if app.is_connected:
+            await app.stop()
 
-    await app.stop()
+    end = time.time()
 
 if __name__ == "__main__":
-    app.run(main())
+    RESTART_INTERVAL = 3600  # Интервал перезапуска в секундах
+    start_time = time.time()
+
+    loop = asyncio.get_event_loop()
+
+    while True:
+        current_time = datetime.now()
+        print(f"Starting the script at {current_time.strftime('%H:%M:%S')}...")
+
+        try:
+            loop.run_until_complete(main(RESTART_INTERVAL))
+        except Exception as e:
+            print(f"An error occurred in the main loop: {e}")
+        finally:
+            if app.is_connected:
+                loop.run_until_complete(app.stop())
+
+        elapsed_time = time.time() - start_time
+        if elapsed_time >= RESTART_INTERVAL:
+            print(f"Restarting the script...")
+            time.sleep(2)
+        else:
+            remaining_time = RESTART_INTERVAL - elapsed_time
+            print(f"Script iteration finished. Waiting {remaining_time:.2f} seconds until next restart...")
+            time.sleep(2)
