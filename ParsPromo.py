@@ -165,9 +165,6 @@ async def check_telegram_messages():
 async def check_discord_messages():
     global last_discord_message_id, is_first_discord_check
 
-async def check_discord_messages():
-    global last_discord_message_id, is_first_discord_check
-
     async with aiohttp.ClientSession() as session:
         retry_count = 0
         max_retries = 1000
