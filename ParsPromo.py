@@ -62,7 +62,9 @@ def extract_promo_code(message):
     promo_patterns = [
         r'Промокод[:\s\*`]*([A-Z0-9-]+)',  # Original pattern
         r'Промоко[:\s\*`]*([A-Z0-9-]+)',   # Misspelled "Промокод"
-        r'Промо[:\s\*`]*([A-Z0-9-]+)'      # Shortened "Промо"
+        r'Промо[:\s\*`]*([A-Z0-9-]+)',     # Shortened "Промо"
+        r'([A-Z0-9]{4}-[A-Z0-9]{4})',      # Pattern like Y088-GS22
+        r'([A-Z0-9-]{5,})'                 # Any sequence of 5 or more uppercase letters, numbers, or hyphens
     ]
     
     for pattern in promo_patterns:
@@ -70,9 +72,7 @@ def extract_promo_code(message):
         if match:
             return match.group(1)
     
-    # If no exact match found, try to find any sequence of uppercase letters and numbers
-    possible_code = re.search(r'[A-Z0-9-]{5,}', message)
-    return possible_code.group(0) if possible_code else None
+    return None
 
 def get_random_user_agent():
     user_agents = [
