@@ -65,7 +65,6 @@ def extract_promo_code(message):
         r'Промо[:\s\*`]*([A-Z0-9-]+)',     # Shortened "Промо"
         r'([A-Z0-9]{4}-[A-Z0-9]{4})',      # Pattern like Y088-GS22
         r'([A-Z0-9]{5}-[A-Z0-9]{5})',      # Pattern like 2Y088-GGS22
-        r'([A-Z0-9-]{5,})'                 # Any sequence of 5 or more uppercase letters, numbers, or hyphens
     ]
     
     for pattern in promo_patterns:
