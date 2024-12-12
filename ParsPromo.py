@@ -277,20 +277,19 @@ async def main(run_time):
         if app.is_connected:
             await app.stop()
 
-    end = time.time()
-
 if __name__ == "__main__":
-    RESTART_INTERVAL = 3598  # Интервал перезапуска в секундах
-    start_time = time.time()
-
     loop = asyncio.get_event_loop()
 
     while True:
         current_time = datetime.now()
+        next_restart_time = (current_time.replace(minute=58, second=0, microsecond=0) 
+                             + timedelta(hours=1) if current_time.minute >= 58 else current_time.replace(minute=58, second=0, microsecond=0))
+        time_to_wait = (next_restart_time - current_time).total_seconds()
+        
         print(f"Starting the script at {current_time.strftime('%H:%M:%S')}...")
-
+        
         try:
-            loop.run_until_complete(main(RESTART_INTERVAL))
+            loop.run_until_complete(main(time_to_wait))
         except Exception as e:
             print(f"An error occurred in the main loop: {e}")
         finally:
@@ -298,12 +297,4 @@ if __name__ == "__main__":
                 print("Stopping Pyrogram client...")
                 loop.run_until_complete(app.stop())
 
-        elapsed_time = time.time() - start_time
-        if elapsed_time >= RESTART_INTERVAL:
-            print(f"Restarting the script...")
-            time.sleep(2)
-        else:
-            remaining_time = RESTART_INTERVAL - elapsed_time
-            print(f"Script iteration finished. Waiting {remaining_time:.2f} seconds until next restart...")
-            time.sleep(2)
-
+        print("Restarting script...")
