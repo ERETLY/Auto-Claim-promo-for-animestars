@@ -19,40 +19,32 @@ from datetime import datetime, timedelta
 from selenium.common.exceptions import WebDriverException
 from pyrogram.errors import FloodWait
 
-# Load environment variables
 load_dotenv('config.env')
 
-# Telegram configuration
 API_ID = os.getenv('API_ID')
 API_HASH = os.getenv('API_HASH')
 PHONE_NUMBER = os.getenv('PHONE_NUMBER')
 TELEGRAM_CHANNEL_USERNAME = os.getenv('CHANNEL_USERNAME')
 
-# Discord configuration
 DISCORD_TOKEN = os.getenv('DISCORD_USER_TOKEN')
 DISCORD_CHANNEL_ID = os.getenv('DISCORD_CHANNEL_ID')
 DISCORD_API_URL = f'https://discord.com/api/v9/channels/{DISCORD_CHANNEL_ID}/messages'
 
-# Proxy configuration
 PROXY_ENABLED = os.getenv('PROXY_ENABLED', 'false').lower() == 'true'
 PROXY_URL = os.getenv('PROXY_URL')
 
-# Cookie files
+# Куки файлы
 COOKIE_FILES = ['cookies.pkl']
 
-# Create Pyrogram client
 app = Client("my_account", api_id=API_ID, api_hash=API_HASH, phone_number=PHONE_NUMBER)
 
-# Variables to track state
 last_telegram_message_id = 0
 last_discord_message_id = None
 is_first_telegram_check = True
 is_first_discord_check = True
 
-# Promo code queue
 promo_queue = deque()
 
-# Headers for Discord requests
 discord_headers = {
     'Authorization': DISCORD_TOKEN,
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36',
@@ -88,7 +80,7 @@ def use_promo_code(promo_code):
     all_success = True
 
     for cookie_file_path in COOKIE_FILES:
-        success_for_current_cookie = False
+        success_for_current_cookie = False  # Успешность для текущего файла куки
 
         for attempt in range(max_retries):
             chrome_options = Options()
@@ -100,7 +92,7 @@ def use_promo_code(promo_code):
             chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
             chrome_options.add_experimental_option('useAutomationExtension', False)
             
-            port = 8516 + random.randint(0, 400)
+            port = 8516 + random.randint(0, 400)  # Используем случайный порт
             chrome_service = ChromeService(port=port)
             
             driver = None
@@ -111,18 +103,15 @@ def use_promo_code(promo_code):
                 print(f'Using promo code "{promo_code}" for cookie file: {cookie_file_path}')
                 time.sleep(1)
                 
-                driver.get('https://animestars.org/promo_codes/')
-                print('Opened site')
-                driver.delete_all_cookies()
-                print('Cookies have been deleted')
-
                 with open(cookie_file_path, 'rb') as cookie_file:
                     cookies = pickle.load(cookie_file)
-                    for cookie in cookies:
-                        if 'expiry' in cookie:
-                            del cookie['expiry']
-                        driver.add_cookie(cookie)
-
+                
+                driver.get('https://animestars.org/')
+                for cookie in cookies:
+                    if 'expiry' in cookie:
+                        del cookie['expiry']
+                    driver.add_cookie(cookie)
+                
                 driver.get('https://animestars.org/promo_codes/')
                 print('Site opened with cookies')
 
@@ -139,10 +128,12 @@ def use_promo_code(promo_code):
                     EC.element_to_be_clickable((By.CSS_SELECTOR, '#promo_code_button'))
                 )
                 
-                button.click()
+                driver.execute_script("arguments[0].scrollIntoView(true);", button)
+                driver.execute_script("arguments[0].click();", button)
                 print(f'Promo code "{promo_code}" successfully used (button clicked).')
 
                 time.sleep(2)
+                
                 success_for_current_cookie = True
                 break
 
@@ -177,7 +168,7 @@ async def process_promo_queue():
 async def check_telegram_messages():
     global last_telegram_message_id, is_first_telegram_check
     max_retries = 5
-    retry_delay = 10
+    retry_delay = 5
 
     while True:
         for attempt in range(max_retries):
@@ -246,7 +237,7 @@ async def check_discord_messages():
                                         print("No promo code found in new Discord message.")
                         else:
                             print(f"Discord API error: {response.status} - {await response.text()}")
-                    break 
+                    break
                 except aiohttp.ClientError as e:
                     print(f"Discord connection error: {e}")
                     if attempt < max_retries - 1:
