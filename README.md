@@ -8,3 +8,5 @@ Auto Claim promo for animestars
 api hash и id - https://my.telegram.org/auth
 
 ds token через расширение или по гайдам смотрите как получить
+
+Данные от акка - логин, пароль
