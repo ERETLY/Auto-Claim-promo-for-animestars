@@ -1,10 +1,8 @@
 import asyncio
 import re
 import os
-import time
 import random
-import sys
-import pickle
+import time
 from collections import deque
 from dotenv import load_dotenv
 from pyrogram import Client
@@ -33,9 +31,6 @@ DISCORD_API_URL = f'https://discord.com/api/v9/channels/{DISCORD_CHANNEL_ID}/mes
 PROXY_ENABLED = os.getenv('PROXY_ENABLED', 'false').lower() == 'true'
 PROXY_URL = os.getenv('PROXY_URL')
 
-# Куки файлы
-COOKIE_FILES = ['cookies.pkl']
-
 app = Client("my_account", api_id=API_ID, api_hash=API_HASH, phone_number=PHONE_NUMBER)
 
 last_telegram_message_id = 0
@@ -44,6 +39,7 @@ is_first_telegram_check = True
 is_first_discord_check = True
 
 promo_queue = deque()
+used_promo_codes = set()
 
 discord_headers = {
     'Authorization': DISCORD_TOKEN,
@@ -75,83 +71,91 @@ def get_random_user_agent():
     ]
     return random.choice(user_agents)
 
+def login_to_site(driver, username, password):
+    try:
+        driver.get('https://animestars.org/')
+        
+        login_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.CLASS_NAME, 'js-show-login'))
+        )
+        login_button.click()
+
+        username_field = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, 'login_name'))
+        )
+        password_field = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, 'login_password'))
+        )
+        submit_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, '/html/body/div[2]/form/div[1]/div[3]/button'))
+        )
+
+        username_field.send_keys(username)
+        password_field.send_keys(password)
+        submit_button.click()
+        
+        time.sleep(2)
+        print("Successfully logged in.")
+
+    except WebDriverException as e:
+        print(f"WebDriver error during login: {e}")
+    except Exception as e:
+        print(f"Unexpected error during login: {e}")
+
 def use_promo_code(promo_code):
     max_retries = 3
-    all_success = True
+    all_success = False
 
-    for cookie_file_path in COOKIE_FILES:
-        success_for_current_cookie = False  # Успешность для текущего файла куки
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument(f"user-agent={get_random_user_agent()}")
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    
+    port = 8516 + random.randint(0, 400)  # Используем случайный порт
+    chrome_service = ChromeService(port=port)
+    
+    driver = None
+    try:
+        driver = webdriver.Chrome(service=chrome_service, options=chrome_options)
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
+        login_to_site(driver, os.getenv('LOGIN'), os.getenv('PASSWORD'))
 
-        for attempt in range(max_retries):
-            chrome_options = Options()
-            chrome_options.add_argument("--headless")
-            chrome_options.add_argument("--no-sandbox")
-            chrome_options.add_argument("--disable-dev-shm-usage")
-            chrome_options.add_argument(f"user-agent={get_random_user_agent()}")
-            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-            chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            chrome_options.add_experimental_option('useAutomationExtension', False)
-            
-            port = 8516 + random.randint(0, 400)  # Используем случайный порт
-            chrome_service = ChromeService(port=port)
-            
-            driver = None
-            try:
-                driver = webdriver.Chrome(service=chrome_service, options=chrome_options)
-                driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-                
-                print(f'Using promo code "{promo_code}" for cookie file: {cookie_file_path}')
-                time.sleep(1)
-                
-                with open(cookie_file_path, 'rb') as cookie_file:
-                    cookies = pickle.load(cookie_file)
-                
-                driver.get('https://animestars.org/')
-                for cookie in cookies:
-                    if 'expiry' in cookie:
-                        del cookie['expiry']
-                    driver.add_cookie(cookie)
-                
-                driver.get('https://animestars.org/promo_codes/')
-                print('Site opened with cookies')
+        print(f'Using promo code "{promo_code}".')
+        time.sleep(1)
 
-                input_field = WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, '#promo_code_input'))
-                )
-                
-                driver.execute_script("arguments[0].value = arguments[1];", input_field, promo_code)
-                driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", input_field)
+        driver.get('https://animestars.org/promo_codes/')
+        input_field = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, '#promo_code_input'))
+        )
 
-                print(f'Promo code "{promo_code}" entered.')
+        driver.execute_script("arguments[0].value = arguments[1];", input_field, promo_code)
+        driver.execute_script("arguments[0].dispatchEvent(new Event('input', { bubbles: true }));", input_field)
 
-                button = WebDriverWait(driver, 10).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, '#promo_code_button'))
-                )
-                
-                driver.execute_script("arguments[0].scrollIntoView(true);", button)
-                driver.execute_script("arguments[0].click();", button)
-                print(f'Promo code "{promo_code}" successfully used (button clicked).')
+        button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, '#promo_code_button'))
+        )
 
-                time.sleep(2)
-                
-                success_for_current_cookie = True
-                break
+        driver.execute_script("arguments[0].scrollIntoView(true);", button)
+        driver.execute_script("arguments[0].click();", button)
+        print(f'Promo code "{promo_code}" successfully used (button clicked).')
 
-            except WebDriverException as e:
-                print(f"WebDriver error on attempt {attempt + 1} for {cookie_file_path}: {e}")
-                if attempt < max_retries - 1:
-                    print(f"Retrying in 5 seconds...")
-                    time.sleep(5)
-            except Exception as e:
-                print(f"Unexpected error on attempt {attempt + 1} for {cookie_file_path}: {e}")
-            finally:
-                if driver:
-                    driver.quit()
-                    time.sleep(5)
+        time.sleep(2)
 
-        if not success_for_current_cookie:
-            print(f"Failed to use promo code {promo_code} with cookie file {cookie_file_path}")
-            all_success = False
+        all_success = True
+
+    except WebDriverException as e:
+        print(f"WebDriver error: {e}")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+    finally:
+        if driver:
+            driver.quit()
+            time.sleep(5)
 
     return all_success
 
@@ -164,47 +168,6 @@ async def process_promo_queue():
                 print(f"Failed to use promo code {promo_code} with all attempts. Adding back to queue.")
                 promo_queue.append(promo_code)
         await asyncio.sleep(5)
-
-async def check_telegram_messages():
-    global last_telegram_message_id, is_first_telegram_check
-    max_retries = 5
-    retry_delay = 5
-
-    while True:
-        for attempt in range(max_retries):
-            try:
-                async for message in app.get_chat_history(TELEGRAM_CHANNEL_USERNAME, limit=1):
-                    if message.id != last_telegram_message_id:
-                        last_telegram_message_id = message.id
-
-                        if is_first_telegram_check:
-                            is_first_telegram_check = False
-                            print("Skipped first Telegram message.")
-                            continue
-
-                        message_text = message.text or message.caption
-                        if message_text:
-                            promo_code = extract_promo_code(message_text)
-                            if promo_code:
-                                print(f"New Telegram promo code found: {promo_code}")
-                                promo_queue.append(promo_code)
-                            else:
-                                print("No promo code found in new Telegram message.")
-                        else:
-                            print("No text found in Telegram message.")
-                break
-            except FloodWait as e:
-                print(f"Flood wait error. Waiting for {e.x} seconds.")
-                await asyncio.sleep(e.x)
-            except Exception as e:
-                print(f"Telegram error: {e}")
-                if attempt < max_retries - 1:
-                    print(f"Retrying in {retry_delay} seconds...")
-                    await asyncio.sleep(retry_delay)
-                else:
-                    print("Max retries reached. Continuing to next iteration.")
-
-        await asyncio.sleep(10)
 
 async def check_discord_messages():
     global last_discord_message_id, is_first_discord_check
@@ -255,46 +218,57 @@ async def check_discord_messages():
 
             await asyncio.sleep(15)
 
-async def main(run_time):
-    start = time.time()
-    try:
-        await app.start()
-        
-        telegram_task = asyncio.create_task(check_telegram_messages())
-        discord_task = asyncio.create_task(check_discord_messages())
-        promo_queue_task = asyncio.create_task(process_promo_queue())
-        
-        await asyncio.sleep(run_time)
-        
-        telegram_task.cancel()
-        discord_task.cancel()
-        promo_queue_task.cancel()
-        
-        await asyncio.gather(telegram_task, discord_task, promo_queue_task, return_exceptions=True)
-    except Exception as e:
-        print(f"Error in main: {e}")
-    finally:
-        if app.is_connected:
-            await app.stop()
-
-if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
+async def check_telegram_messages():
+    global last_telegram_message_id, is_first_telegram_check
+    max_retries = 5
+    retry_delay = 5
 
     while True:
-        current_time = datetime.now()
-        next_restart_time = (current_time.replace(minute=58, second=0, microsecond=0) 
-                             + timedelta(hours=1) if current_time.minute >= 58 else current_time.replace(minute=58, second=0, microsecond=0))
-        time_to_wait = (next_restart_time - current_time).total_seconds()
-        
-        print(f"Starting the script at {current_time.strftime('%H:%M:%S')}...")
-        
-        try:
-            loop.run_until_complete(main(time_to_wait))
-        except Exception as e:
-            print(f"An error occurred in the main loop: {e}")
-        finally:
-            if app.is_connected:
-                print("Stopping Pyrogram client...")
-                loop.run_until_complete(app.stop())
+        for attempt in range(max_retries):
+            try:
+                app = Client("my_account", api_id=API_ID, api_hash=API_HASH, phone_number=PHONE_NUMBER)
+                await app.start()
 
-        print("Restarting script...")
+                async for message in app.get_chat_history(TELEGRAM_CHANNEL_USERNAME, limit=1):
+                    if message.id != last_telegram_message_id:
+                        last_telegram_message_id = message.id
+
+                        if is_first_telegram_check:
+                            is_first_telegram_check = False
+                            print("Skipped first Telegram message.")
+                            continue
+
+                        message_text = message.text
+                        if message_text:
+                            promo_code = extract_promo_code(message_text)
+                            if promo_code:
+                                print(f"New Telegram promo code found: {promo_code}")
+                                promo_queue.append(promo_code)
+                            else:
+                                print("No promo code found in new Telegram message.")
+                break
+            except FloodWait as e:
+                print(f"Flood wait error. Waiting for {e.x} seconds.")
+                await asyncio.sleep(e.x)
+            except Exception as e:
+                print(f"Telegram error: {e}")
+                if attempt < max_retries - 1:
+                    print(f"Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                else:
+                    print("Max retries reached. Continuing to next iteration.")
+            finally:
+                if app.is_connected:
+                    await app.stop()
+
+        await asyncio.sleep(10)
+
+async def main():
+    await asyncio.gather(
+        process_promo_queue(),
+        check_telegram_messages(),
+        check_discord_messages()
+    )
+
+if __name__ == '__main__':
+    asyncio.run(main())
