@@ -171,8 +171,8 @@ async def process_promo_queue():
 
 async def check_discord_messages():
     global last_discord_message_id, is_first_discord_check
-    max_retries = 5
-    retry_delay = 5
+    max_retries = 10
+    retry_delay = 15
 
     async with aiohttp.ClientSession() as session:
         while True:
@@ -216,7 +216,7 @@ async def check_discord_messages():
                     else:
                         print("Max retries reached. Continuing to next iteration.")
 
-            await asyncio.sleep(15)
+            await asyncio.sleep(25)
 
 async def check_telegram_messages():
     global last_telegram_message_id, is_first_telegram_check
