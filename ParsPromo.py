@@ -220,8 +220,8 @@ async def check_discord_messages():
 
 async def check_telegram_messages():
     global last_telegram_message_id, is_first_telegram_check
-    max_retries = 5
-    retry_delay = 5
+    max_retries = 10
+    retry_delay = 15
 
     while True:
         for attempt in range(max_retries):
@@ -261,7 +261,7 @@ async def check_telegram_messages():
                 if app.is_connected:
                     await app.stop()
 
-        await asyncio.sleep(10)
+        await asyncio.sleep(20)
 
 async def main():
     await asyncio.gather(
