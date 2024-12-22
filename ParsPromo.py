@@ -1,6 +1,7 @@
 import asyncio
 import re
 import os
+import sys
 import random
 import time
 from collections import deque
@@ -171,8 +172,8 @@ async def process_promo_queue():
 
 async def check_discord_messages():
     global last_discord_message_id, is_first_discord_check
-    max_retries = 10
-    retry_delay = 15
+    max_retries = 7
+    retry_delay = 20
 
     async with aiohttp.ClientSession() as session:
         while True:
@@ -220,8 +221,8 @@ async def check_discord_messages():
 
 async def check_telegram_messages():
     global last_telegram_message_id, is_first_telegram_check
-    max_retries = 10
-    retry_delay = 15
+    max_retries = 3
+    retry_delay = 60
 
     while True:
         for attempt in range(max_retries):
@@ -263,11 +264,28 @@ async def check_telegram_messages():
 
         await asyncio.sleep(20)
 
+async def restart_script():
+    while True:
+        now = datetime.now()
+        next_restart = now.replace(minute=58, second=0, microsecond=0)
+        if next_restart <= now:
+            next_restart += timedelta(hours=1)
+
+        wait_time = (next_restart - now).total_seconds()
+        await asyncio.sleep(wait_time)
+
+        print(f"Restarting the script...")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+
 async def main():
+    current_time = datetime.now().strftime('%H:%M:%S')
+    print(f"Script started at {current_time}.")
+    
     await asyncio.gather(
         process_promo_queue(),
         check_telegram_messages(),
-        check_discord_messages()
+        check_discord_messages(),
+        restart_script()
     )
 
 if __name__ == '__main__':
