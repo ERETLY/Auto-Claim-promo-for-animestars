@@ -18,7 +18,6 @@ from datetime import datetime, timedelta
 from selenium.common.exceptions import WebDriverException
 from pyrogram.errors import FloodWait
 
-# Загрузка переменных из config.env
 load_dotenv('config.env')
 
 API_ID = os.getenv('API_ID')
@@ -33,7 +32,6 @@ DISCORD_API_URL = f'https://discord.com/api/v9/channels/{DISCORD_CHANNEL_ID}/mes
 PROXY_ENABLED = os.getenv('PROXY_ENABLED', 'false').lower() == 'true'
 PROXY_URL = os.getenv('PROXY_URL')
 
-# Настройка клиента Telegram с увеличенным тайм-аутом
 app = Client("my_account", api_id=API_ID, api_hash=API_HASH, phone_number=PHONE_NUMBER)
 
 last_telegram_message_id = 0
@@ -106,6 +104,7 @@ def login_to_site(driver, username, password):
         print(f"Unexpected error during login: {e}")
 
 def use_promo_code(promo_code):
+    max_retries = 3
     all_success = False
 
     chrome_options = Options()
@@ -116,10 +115,13 @@ def use_promo_code(promo_code):
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     chrome_options.add_experimental_option('useAutomationExtension', False)
-
+    
+    port = 8516 + random.randint(0, 400)  # Используем случайный порт
+    chrome_service = ChromeService(port=port)
+    
     driver = None
     try:
-        driver = webdriver.Chrome(options=chrome_options)
+        driver = webdriver.Chrome(service=chrome_service, options=chrome_options)
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
         login_to_site(driver, os.getenv('LOGIN'), os.getenv('PASSWORD'))
@@ -144,6 +146,7 @@ def use_promo_code(promo_code):
         print(f'Promo code "{promo_code}" successfully used (button clicked).')
 
         time.sleep(2)
+
         all_success = True
 
     except WebDriverException as e:
@@ -163,69 +166,111 @@ async def process_promo_queue():
             promo_code = promo_queue.popleft()
             success = use_promo_code(promo_code)
             if not success:
-                print(f"Failed to use promo code {promo_code}. Adding back to queue.")
+                print(f"Failed to use promo code {promo_code} with all attempts. Adding back to queue.")
                 promo_queue.append(promo_code)
         await asyncio.sleep(5)
 
 async def check_discord_messages():
     global last_discord_message_id, is_first_discord_check
+    max_retries = 7
+    retry_delay = 20
 
     async with aiohttp.ClientSession() as session:
         while True:
-            try:
-                async with session.get(DISCORD_API_URL, headers=discord_headers, proxy=PROXY_URL if PROXY_ENABLED else None) as response:
-                    if response.status == 200:
-                        messages = await response.json()
-                        if messages:
-                            latest_message = messages[0]
-                            
-                            if latest_message['id'] != last_discord_message_id:
-                                last_discord_message_id = latest_message['id']
+            for attempt in range(max_retries):
+                try:
+                    async with session.get(DISCORD_API_URL, headers=discord_headers, proxy=PROXY_URL if PROXY_ENABLED else None) as response:
+                        if response.status == 200:
+                            messages = await response.json()
+                            if messages:
+                                latest_message = messages[0]
+                                
+                                if latest_message['id'] != last_discord_message_id:
+                                    last_discord_message_id = latest_message['id']
 
-                                if is_first_discord_check:
-                                    is_first_discord_check = False
-                                    print("Skipped first Discord message.")
-                                    continue
+                                    if is_first_discord_check:
+                                        is_first_discord_check = False
+                                        print("Skipped first Discord message.")
+                                        continue
 
-                                promo_code = extract_promo_code(latest_message['content'])
-                                if promo_code:
-                                    print(f"New Discord promo code found: {promo_code}")
-                                    promo_queue.append(promo_code)
-                                else:
-                                    print("No promo code found in new Discord message.")
+                                    promo_code = extract_promo_code(latest_message['content'])
+                                    if promo_code:
+                                        print(f"New Discord promo code found: {promo_code}")
+                                        promo_queue.append(promo_code)
+                                    else:
+                                        print("No promo code found in new Discord message.")
+                        else:
+                            print(f"Discord API error: {response.status} - {await response.text()}")
+                    break
+                except aiohttp.ClientError as e:
+                    print(f"Discord connection error: {e}")
+                    if attempt < max_retries - 1:
+                        print(f"Retrying in {retry_delay} seconds...")
+                        await asyncio.sleep(retry_delay)
                     else:
-                        print(f"Discord API error: {response.status} - {await response.text()}")
-            except Exception as e:
-                print(f"Discord connection error: {e}")
+                        print("Max retries reached. Continuing to next iteration.")
+                except Exception as e:
+                    print(f"Unexpected error: {e}")
+                    if attempt < max_retries - 1:
+                        print(f"Retrying in {retry_delay} seconds...")
+                        await asyncio.sleep(retry_delay)
+                    else:
+                        print("Max retries reached. Continuing to next iteration.")
+
             await asyncio.sleep(25)
 
 async def check_telegram_messages():
     global last_telegram_message_id, is_first_telegram_check
+    max_retries = 3
+    retry_delay = 60
 
     while True:
-        try:
-            if not app.is_connected:
-                await app.connect()
+        for attempt in range(max_retries):
+            try:
+                app = Client("my_account", api_id=API_ID, api_hash=API_HASH, phone_number=PHONE_NUMBER)
+                await app.start()
 
-            async for message in app.get_chat_history(TELEGRAM_CHANNEL_USERNAME, limit=1):
-                if message.id != last_telegram_message_id:
-                    last_telegram_message_id = message.id
+                async for message in app.get_chat_history(TELEGRAM_CHANNEL_USERNAME, limit=1):
+                    if message.id != last_telegram_message_id:
+                        last_telegram_message_id = message.id
 
-                    if is_first_telegram_check:
-                        is_first_telegram_check = False
-                        print("Skipped first Telegram message.")
-                        continue
+                        if is_first_telegram_check:
+                            is_first_telegram_check = False
+                            print("Skipped first Telegram message.")
+                            continue
 
-                    promo_code = extract_promo_code(message.text)
-                    if promo_code:
-                        print(f"New Telegram promo code found: {promo_code}")
-                        promo_queue.append(promo_code)
-        except FloodWait as e:
-            print(f"Flood wait error. Waiting for {e.x} seconds.")
-            await asyncio.sleep(e.x)
-        except Exception as e:
-            print(f"Telegram error: {e}")
-        await asyncio.sleep(20)
+                        if message.text:
+                            promo_code = extract_promo_code(message.text)
+                            if promo_code:
+                                print(f"New Telegram promo code found: {promo_code}")
+                                promo_queue.append(promo_code)
+                            else:
+                                print("No promo code found in Telegram message text.")
+                        
+                        if message.photo and message.caption:
+                            promo_code = extract_promo_code(message.caption)
+                            if promo_code:
+                                print(f"New Telegram promo code found in photo caption: {promo_code}")
+                                promo_queue.append(promo_code)
+                            else:
+                                print("No promo code found in Telegram photo caption.")
+                        
+                        if not message.text and not (message.photo and message.caption):
+                            print("Telegram message has no text or photo caption.")
+
+                break
+            except Exception as e:
+                print(f"Telegram error: {e}")
+                if attempt < max_retries - 1:
+                    print(f"Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                else:
+                    print("Max retries reached. Continuing to next iteration.")
+            finally:
+                if app.is_connected:
+                    await app.stop()
+
+        await asyncio.sleep(15)
 
 async def restart_script():
     while True:
